@@ -57,6 +57,8 @@ class crypto_system:
       a[i][:] = np.random.choice(self.p, self.n)
     e = np.array([distribution(self.n,self.p) for i in range(self.m)])
     b = (np.dot(a, self.pvt_key)+e) % self.p
+    self.b2 = np.asarray(b)
+    
     # b = (np.dot(a, self.pvt_key)+self.p-4) % self.p
     # b = (np.dot(a, self.pvt_key) + np.random.choice(self.p, self.m, True, self.chi)) % self.p
     # b = (np.dot(a, self.pvt_key) + np.random.choice(np.arange(-10,10+1), self.m, True) + self.p) % self.p
@@ -106,6 +108,7 @@ class crypto_system:
     print("pvt_key = \n", self.pvt_key)
     print("pub_key ai = \n", self.pub_key[0])
     print("pub_key bi = \n", self.pub_key[1])
+    #print("B in bytes: \n",self.b2.tobytes())
     print("====================================")
 
 
@@ -118,9 +121,8 @@ def send_data(conn,mesg):
     conn.sendall(mesg)
 
 def send_bytes(conn,mesg):
-    print("=========")
-    print("Original Message:",mesg)
-    print("Bytes Message: ",mesg)
+    #print("=========")
+    #print("Sending Message: ",mesg)
     conn.sendall(mesg)
 
 def recv_data(conn,t = 'int'):
@@ -142,7 +144,7 @@ def send_pub_key(conn,CS):
   #print(len(send_list))
 
   #sending B length = 5280
-  send_list += np.asarray(CS.pub_key[1]).tobytes()
+  send_list += np.asarray(CS.pub_key[1]).astype('<i8').tobytes()
   #print(len(send_list))
   t = 0
   while send_list:
@@ -155,7 +157,7 @@ def recv_pub_key(conn,CS):
   send_list = conn.recv(8) #its correct
   p = np.frombuffer(send_list,dtype=np.int64)
   CS.p = p[0]
-  CS.m = (1 + epsilon)*(CS.p + 1)*int(np.log2(CS.p))
+  CS.m = (1 + epsilon)*(CS.n + 1)*int(np.log2(CS.p))
 
   send_list = b''
   time.sleep(1)
@@ -176,26 +178,53 @@ def recv_pub_key(conn,CS):
   
   send_list = b''
   time.sleep(1)
-  for i in range(5280):
-    temp = conn.recv(1)
+  while len(send_list) < 5280:
+    temp = conn.recv(5280 - len(send_list))
+    if not temp:
+        raise ConnectionError("Socket connection lost")
     send_list += temp
   #print(len(send_list))
-  B =  np.frombuffer(send_list,dtype=np.int64)
+  #print(send_list)
+  B = np.frombuffer(send_list,dtype='<i8')
   #print(B.shape)
   CS.pub_key = (A,B)
 
 def encrypt_message(mesg,CS):
+  #print("Original Message:",mesg)
   mesg = bytes(mesg,'utf-8')
-  print("Bytes Message:",mesg)
+  #print("Bytes Message:",mesg)
   mesg = CS.encrypt_bytes(mesg)
+  #print("Encrypted Message:",mesg)
   return mesg
+def decrypt_message(text,CS):
+  #print("Recieved Text: ",text)
+  text = CS.decrypt_bytes(text)
+  #print("Decrypted Text In Bytes:",text)
+  text = text.decode('utf-8')
+  #print("Decrypted Text:",text)
+  return text
 
+def trial_test(CS):
+  print("============================================")
+  print("Testing Encryption and Decryption System")
+  text = 'Hello'
+  b_text = bytes(text,'utf-8')
+  print("Text: ",text)
+  print("In Bytes:",b_text)
+  b_text = CS.encrypt_bytes(b_text)
+  l1 = len(b_text).to_bytes(8)
+  print("Length of Encrypted Text:",len(b_text),"=",l1)
+  b_text = CS.decrypt_bytes(b_text)
+  print("Decrypted Text In Bytes:",b_text)
+  print("Decrypted Text:",b_text.decode('utf-8'))
+  print("============================================")
    
 HOST = "127.0.0.1"  # Standard loopback interface address (localhost)
 PORT = 65432  # Port to listen on (non-privileged ports are > 1023)
 
 #for client public key
 CS_encrypt_obj = crypto_system(32)
+CS_encrypt_obj.gen_keys()
 
 #for server
 CS_decrypt_obj = crypto_system(32)
@@ -217,7 +246,6 @@ print(f"Listening on {(HOST, PORT)}")
 #accept
 conn,addr = lsock.accept()
 
-
 #selector declaration
 sel = selectors.DefaultSelector()
 
@@ -229,8 +257,17 @@ sel.register(sys.stdin,selectors.EVENT_READ,data=None)
 #key exchange
 send_pub_key(conn,CS_decrypt_obj)
 recv_pub_key(conn,CS_encrypt_obj)
-#print(PUB_C2)
 print("KEY exchange done")
+
+'''
+print("CS_Encrypt_obj")
+CS_encrypt_obj.debug()
+
+print("CS_Decrypt_obj")
+CS_decrypt_obj.debug()
+'''
+
+trial_test(CS_decrypt_obj)
 
 conn.setblocking(False)
 
@@ -241,20 +278,35 @@ try:
         for key,mask in events:
             if (key.data) is None:
                 #stdin
+                print("============================================")
                 mesg = input("")
                 mesg = encrypt_message(mesg,CS_encrypt_obj) #mesg in bytes
-                print("enrypted successfully",mesg)
+                l1 = len(mesg)
+                print("Length =",l1)
+                l1 = l1.to_bytes(8,byteorder='big')
+                print("Length of Encrypted Message: ",len(mesg),'=',l1)
+                conn.sendall(l1)
                 send_bytes(conn,mesg)
+                print("============================================")
             else:
-                text = recv_data(conn,'str')
-                if (text is None):
+                print("============================================")
+                text = conn.recv(8)
+                if (text is None or text == b''):
                     print(f"Closing connection to {key.data.addr}")
                     sel.unregister(key.fileobj)
                     key.fileobj.close()
-                    continue
-                print(text)
-except Exception as err:
-    print("Interrupted, exiting :",str(err))
+                    sel.close()
+                    lsock.close()
+                    exit(0)
+                #print(text)
+                l1 = int.from_bytes(text,byteorder='big')
+                #print("Received Message Length =",l1)
+                time.sleep(1)
+                text = conn.recv(l1)
+                text = decrypt_message(text,CS_decrypt_obj)
+                print("Received Message:",text)
+                print("============================================")
+
 finally:
     lsock.close()
     sel.close()
