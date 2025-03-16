@@ -4,6 +4,7 @@ import selectors
 import types
 import time
 import numpy as np
+import hashlib
 
 KEY = {"public":1,"private":2}#PUBLIC, PRIVATE
 
@@ -189,9 +190,9 @@ def recv_pub_key(conn,CS):
   #print(B.shape)
   CS.pub_key = (A,B)
 
-def encrypt_message(mesg,CS):
+def encrypt_message(mesg,CS): #mesg in Bytes format
   #print("Original Message:",mesg)
-  mesg = bytes(mesg,'utf-8')
+  #mesg = bytes(mesg,'utf-8')
   #print("Bytes Message:",mesg)
   mesg = CS.encrypt_bytes(mesg)
   #print("Encrypted Message:",mesg)
@@ -200,10 +201,25 @@ def decrypt_message(text,CS):
   #print("Recieved Text: ",text)
   text = CS.decrypt_bytes(text)
   #print("Decrypted Text In Bytes:",text)
-  text = text.decode('utf-8')
+  #text = text.decode('utf-8')
   #print("Decrypted Text:",text)
-  return text
+  return text #returns text in Bytes Format
 
+def gen_hashed_message(mesg): #mesg in string format
+   mesg = bytes(mesg,'utf-8')
+   mesg = mesg + hashlib.sha256(mesg).digest() # mesg + (32 bytes of hash)
+   return mesg
+
+def verify_hash(text):#text in Bytes format
+   recv_hash = text[-32:]
+   mesg = text[:-32]
+   mesg_hash = hashlib.sha256(mesg).digest()
+   if (recv_hash == mesg_hash):
+      mesg = mesg.decode('utf-8')
+      return mesg
+   else:
+      return ''
+   
 def trial_test(CS):
   print("============================================")
   print("Testing Encryption and Decryption System")
@@ -280,11 +296,13 @@ try:
                 #stdin
                 print("============================================")
                 mesg = input("")
+                mesg = gen_hashed_message(mesg)
+                print("Hashed Message:",mesg)
                 mesg = encrypt_message(mesg,CS_encrypt_obj) #mesg in bytes
                 l1 = len(mesg)
-                print("Length =",l1)
+                #print("Length =",l1)
                 l1 = l1.to_bytes(8,byteorder='big')
-                print("Length of Encrypted Message: ",len(mesg),'=',l1)
+                #print("Length of Encrypted Message: ",len(mesg),'=',l1)
                 conn.sendall(l1)
                 send_bytes(conn,mesg)
                 print("============================================")
@@ -304,6 +322,12 @@ try:
                 time.sleep(1)
                 text = conn.recv(l1)
                 text = decrypt_message(text,CS_decrypt_obj)
+                text = verify_hash(text)
+                if (text == ''):
+                   print("Integrity compromised. Message discarded")
+                   continue
+                else:
+                   print("Integrity verified. Message accepted")
                 print("Received Message:",text)
                 print("============================================")
 
