@@ -8,6 +8,12 @@ import hashlib
 
 KEY = {"public":1,"private":2}#PUBLIC, PRIVATE
 
+def encrypt(message,key = ""):
+    return message
+
+def decrypt(message,key = ""):
+    return message
+
 epsilon = 1
 def is_prime(x):
   for i in np.arange(2,x/2):

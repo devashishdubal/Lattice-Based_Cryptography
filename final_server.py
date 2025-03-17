@@ -1,12 +1,13 @@
-import sys
+import curses
+from curses import wrapper
+from curses.textpad import Textbox, rectangle
+import numpy as np
 import socket
 import selectors
 import types
+import sys
 import time
-import numpy as np
 import hashlib
-
-KEY = {"public":1,"private":2}#PUBLIC, PRIVATE
 
 epsilon = 1
 def is_prime(x):
@@ -258,7 +259,7 @@ def trial_test(CS):
   print("Decrypted Text In Bytes:",b_text)
   print("Decrypted Text:",b_text.decode('utf-8'))
   print("============================================")
-   
+  
 HOST = "127.0.0.1"  # Standard loopback interface address (localhost)
 PORT = 65432  # Port to listen on (non-privileged ports are > 1023)
 
@@ -277,7 +278,6 @@ A_CS_encrypt.gen_keys()
 #for client
 A_CS_decrypt = crypto_system(32)
 A_CS_decrypt.gen_keys()
-
 
 #socket initialization
 lsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -300,7 +300,7 @@ sel = selectors.DefaultSelector()
 #add socket and sys.stdin to selector queue
 dataType1 = types.SimpleNamespace(addr=addr, inb=b"", outb=b"")
 sel.register(conn,selectors.EVENT_READ,data=dataType1)
-sel.register(sys.stdin,selectors.EVENT_READ,data=None)
+#sel.register(sys.stdin,selectors.EVENT_READ,data=None)
 
 #key exchange
 send_pub_key(conn,CS_decrypt_obj)
@@ -309,100 +309,185 @@ send_pvt_key(conn,A_CS_encrypt)
 recv_pvt_key(conn,A_CS_decrypt)
 print("KEY exchange done")
 
-'''
-print("A_CS_encrypt")
-print(A_CS_encrypt.p)
-print(A_CS_encrypt.pvt_key)
-print("A_CS_decrypt")
-print(A_CS_decrypt.p)
-print(A_CS_decrypt.pvt_key)
-exit(0)
-'''
-
-'''
-print("CS_Encrypt_obj")
-CS_encrypt_obj.debug()
-
-print("CS_Decrypt_obj")
-CS_decrypt_obj.debug()
-'''
-
-'''
-mesg = "Hello"
-mesg = mesg.encode('utf-8')
-hash = hashlib.sha256(mesg).digest()
-hash = A_CS_encrypt.encrypt_bytes(hash)
-print("Length of encrypted hash =",len(hash))
-mesg = CS_encrypt_obj.encrypt_bytes(mesg)
-mesg = mesg + hash
-print("Length of total stuff =",len(mesg))
-exit(0)'
-'''
-
-
-#trial_test(CS_decrypt_obj)
-
 conn.setblocking(False)
 
-try:
+def console_textpad(stdscr):
+    curses.init_pair(1, 2, 0)
+    curses.init_pair(2, 3, 0)
+    curses.halfdelay(1)
+    curses.curs_set(0)
+    stdscr.addstr(0, 0, "")
+    rows, cols = stdscr.getmaxyx()
+    disp_pad = curses.newpad(1024, cols - 2)
+    rectangle(stdscr, 0, 0, rows - 4, cols - 1)
+    stdscr.refresh()
+    msg_type_names = [" Client ", " Server "]
+    messages = ["dummy"]
+    msg_types = [1]
+
+    text_pad_y = rows - 3
+    text_pad_xl = 1
+    text_pad_wl = cols - 6
+    text_pad_HIDE_WORDS = False
+    text_pad_wl += text_pad_xl + 2
+    text_pad_s = ''
+    text_pad_cp = 0
+    rectangle(stdscr, text_pad_y, text_pad_xl, text_pad_y + 2, text_pad_wl)
+    stdscr.addstr(text_pad_y + 1, text_pad_xl + 1, '')
+
+    curr_row = 0
+    msg_width = cols-6
+    disp_pad.addstr('\n ')
     while True:
-        #poll sockets
-        events = sel.select(timeout=None)
-        for key,mask in events:
-            if (key.data) is None:
-                #stdin
-                print("============================================")
-                mesg = input("")
-                mesg = mesg.encode('utf-8')
-                hash = hashlib.sha256(mesg).digest()
-                hash = A_CS_encrypt.encrypt_bytes(hash) #encrypted hash length = 16896
-                mesg = CS_encrypt_obj.encrypt_bytes(mesg)
-                mesg = mesg + hash
-                l1 = len(mesg)
-                #print("Length =",l1)
-                l1 = l1.to_bytes(30,byteorder='big')
-                #print("Length of Encrypted Message: ",len(mesg),'=',l1)
-                conn.sendall(l1)
-                send_bytes(conn,mesg)
-                #print("message sent")
-                print("============================================")
+        if len(messages) > 0:
+            for i in range(0, len(messages[0]), msg_width):
+                disp_pad.addstr(
+                    messages[0][i:min(len(messages[0]), i+msg_width)] + '\n ')
+
+            msg_rect_y2, _ = disp_pad.getyx()
+            msg_rect_y1 = msg_rect_y2 - 1 - \
+                (len(messages[0])+msg_width)//msg_width
+            msg_rect_y1 = max(0, msg_rect_y1)
+            disp_pad.addstr('\n\n ')
+            stored_y, stored_x = disp_pad.getyx()
+            disp_pad.attron(curses.color_pair(msg_types[0]+1))
+            rectangle(disp_pad, msg_rect_y1, 0, msg_rect_y2, msg_width+1)
+            disp_pad.addstr(msg_rect_y1, 3, msg_type_names[msg_types[0]])
+            disp_pad.attroff(curses.color_pair(msg_types[0]+1))
+            disp_pad.move(stored_y, stored_x)
+            messages.pop(0)
+            msg_types.pop(0)
+            disp_pad.refresh(max(0, msg_rect_y2-(rows-6)),
+                             0, 1, 2, rows-5, cols-2)
+            stdscr.refresh()
+
+        events = sel.select(timeout=0)
+        for key, mask in events:
+          text = conn.recv(30)
+          #print(text)
+          l1 = int.from_bytes(text,byteorder='big')
+          #print("Received Message Length =",l1)
+          time.sleep(1)
+          text = b''
+          #text = conn.recv(l1)
+          while len(text) < l1:
+            temp = conn.recv(l1 - len(text))
+            if not temp:
+              raise ConnectionError("Socket connection lost")
+            text += temp
+          
+          recv_hash = text[-16896:]
+          recv_hash = A_CS_decrypt.decrypt_bytes(recv_hash)
+          mesg = text[:-16896]
+          mesg = CS_decrypt_obj.decrypt_bytes(mesg)
+          mesg_hash = hashlib.sha256(mesg).digest()
+          mesg = mesg.decode('utf-8')
+          if (mesg_hash != recv_hash):
+              messages.append("Integrity compromised. Message discarded")
+              continue
+          else:
+              messages.append(mesg)
+          msg_types.append(0)
+        '''
+        if np.random.randint(0,100)>90:
+            messages.append(f"blah blah - {np.random.randint(0,100)}")
+            msg_types.append(0)
+        '''
+        stdscr.addstr(text_pad_y + 1, text_pad_xl + 1 + text_pad_cp, '')
+        k = stdscr.getch()
+        if k == curses.ERR:
+            continue
+        if k == curses.KEY_ENTER or k in [10, 13]:
+            if text_pad_s == '!quit' or text_pad_s == '!q':
+                return
+            messages.append(text_pad_s)
+            msg_types.append(1)
+            text_pad_y = rows - 3
+            text_pad_xl = 1
+            text_pad_wl = cols - 6
+            text_pad_HIDE_WORDS = False
+            text_pad_wl += text_pad_xl + 2
+            text_pad_s = ''
+            text_pad_cp = 0
+            stdscr.addstr(text_pad_y + 1, text_pad_xl + 1, ' '*text_pad_wl)
+            stdscr.refresh()
+            mesg = text_pad_s
+            mesg = mesg.encode('utf-8')
+            hash = hashlib.sha256(mesg).digest()
+            hash = A_CS_encrypt.encrypt_bytes(hash) #encrypted hash length = 16896
+            mesg = CS_encrypt_obj.encrypt_bytes(mesg)
+            mesg = mesg + hash
+            l1 = len(mesg)
+            #print("Length =",l1)
+            l1 = l1.to_bytes(30,byteorder='big')
+            #print("Length of Encrypted Message: ",len(mesg),'=',l1)
+            conn.sendall(l1)
+            send_bytes(conn,mesg)
+
+        elif k == curses.KEY_UP or k == curses.KEY_DOWN:
+            pass
+        elif k == curses.KEY_BACKSPACE or k == 8:
+            if text_pad_cp > 0:
+                text_pad_cp -= 1
+            stdscr.addstr(text_pad_y + 1, text_pad_xl + 1, " " * len(text_pad_s))
+            text_pad_s = text_pad_s[:text_pad_cp]+text_pad_s[text_pad_cp+1:]
+            if text_pad_HIDE_WORDS:
+                stdscr.addstr(text_pad_y + 1, text_pad_xl + 1 + text_pad_cp, "*"*len(text_pad_s[text_pad_cp:]))
+                stdscr.addstr(text_pad_y + 1, text_pad_xl + 1, "*"*len(text_pad_s[:text_pad_cp]))
             else:
-                print("============================================")
-                text = conn.recv(30)
-                if (text is None or text == b''):
-                    print(f"Closing connection to {key.data.addr}")
-                    sel.unregister(key.fileobj)
-                    key.fileobj.close()
-                    sel.close()
-                    lsock.close()
-                    exit(0)
-                #print(text)
-                l1 = int.from_bytes(text,byteorder='big')
-                #print("Received Message Length =",l1)
-                time.sleep(1)
-                text = b''
-                #text = conn.recv(l1)
-                while len(text) < l1:
-                  temp = conn.recv(l1 - len(text))
-                  if not temp:
-                    raise ConnectionError("Socket connection lost")
-                  text += temp
-                
-                recv_hash = text[-16896:]
-                recv_hash = A_CS_decrypt.decrypt_bytes(recv_hash)
-                mesg = text[:-16896]
-                mesg = CS_decrypt_obj.decrypt_bytes(mesg)
-                mesg_hash = hashlib.sha256(mesg).digest()
-                mesg = mesg.decode('utf-8')
-                if (mesg_hash != recv_hash):
-                   print("Integrity compromised. Message discarded")
-                   continue
+                stdscr.addstr(text_pad_y + 1, text_pad_xl + 1 + text_pad_cp, text_pad_s[text_pad_cp:])
+                stdscr.addstr(text_pad_y + 1, text_pad_xl + 1, text_pad_s[:text_pad_cp])
+
+        elif k == curses.KEY_LEFT or k == 27:
+            if not text_pad_cp:
+                pass
+            else:
+                text_pad_cp -= 1
+                if text_pad_HIDE_WORDS:
+                    stdscr.addstr(text_pad_y + 1, text_pad_xl + 1 + text_pad_cp, "*"*len(text_pad_s[text_pad_cp:]))
+                    stdscr.addstr(text_pad_y + 1, text_pad_xl + 1, "*"*len(text_pad_s[:text_pad_cp]))
                 else:
-                   print("Integrity verified. Message accepted")
-                print("Received Message:",mesg)
-                print("============================================")
+                    stdscr.addstr(text_pad_y + 1, text_pad_xl + 1 + text_pad_cp, text_pad_s[text_pad_cp:])
+                    stdscr.addstr(text_pad_y + 1, text_pad_xl + 1, text_pad_s[:text_pad_cp])
+        elif k == curses.KEY_RIGHT or k == 26:
+            if text_pad_cp == len(text_pad_s):
+                pass
+            else:
+                text_pad_cp += 1
+                if text_pad_HIDE_WORDS:
+                    stdscr.addstr(text_pad_y + 1, text_pad_xl + 1 + text_pad_cp, "*"*len(text_pad_s[text_pad_cp:]))
+                    stdscr.addstr(text_pad_y + 1, text_pad_xl + 1, "*"*len(text_pad_s[:text_pad_cp]))
+                else:
+                    stdscr.addstr(text_pad_y + 1, text_pad_xl + 1 + text_pad_cp, text_pad_s[text_pad_cp:])
+                    stdscr.addstr(text_pad_y + 1, text_pad_xl + 1, text_pad_s[:text_pad_cp])
+        elif k in [curses.KEY_DC, 127]:
+            if text_pad_HIDE_WORDS:
+                stdscr.addstr(text_pad_y + 1, text_pad_xl + 1 + text_pad_cp, "*" *
+                              len(text_pad_s[text_pad_cp + 1:] + " "))
+                stdscr.addstr(text_pad_y + 1, text_pad_xl + 1, "*"*len(text_pad_s[:text_pad_cp]))
+            else:
+                stdscr.addstr(text_pad_y + 1, text_pad_xl + 1 + text_pad_cp, text_pad_s[text_pad_cp + 1:] + " ")
+                stdscr.addstr(text_pad_y + 1, text_pad_xl + 1, text_pad_s[:text_pad_cp])
+            text_pad_s = text_pad_s[:text_pad_cp] + text_pad_s[text_pad_cp + 1:]
+        else:
+            if len(text_pad_s) < text_pad_wl - text_pad_xl - 2:
+                if text_pad_cp == len(text_pad_s):
+                    text_pad_s += str(chr(k))
+                    if text_pad_HIDE_WORDS:
+                        stdscr.addstr(text_pad_y + 1, text_pad_xl + 1, "*"*len(text_pad_s))
+                    else:
+                        stdscr.addstr(text_pad_y + 1, text_pad_xl + 1, text_pad_s)
+                else:
+                    text_pad_s = text_pad_s[:text_pad_cp] + str(chr(k)) + text_pad_s[text_pad_cp:]
+                    if text_pad_HIDE_WORDS:
+                        stdscr.addstr(text_pad_y + 1, text_pad_xl + 1 +
+                                      len(text_pad_s[:text_pad_cp + 1]), "*"*len(text_pad_s[text_pad_cp + 1:]))
+                        stdscr.addstr(text_pad_y + 1, text_pad_xl + 1, "*"*len(text_pad_s[:text_pad_cp + 1]))
+                    else:
+                        stdscr.addstr(text_pad_y + 1, text_pad_xl + 1 +
+                                      len(text_pad_s[:text_pad_cp + 1]), text_pad_s[text_pad_cp + 1:])
+                        stdscr.addstr(text_pad_y + 1, text_pad_xl + 1, text_pad_s[:text_pad_cp + 1])
+                text_pad_cp += 1
 
-finally:
-    lsock.close()
-    sel.close()
 
+wrapper(console_textpad)
