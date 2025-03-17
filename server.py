@@ -122,9 +122,9 @@ def send_data(conn,mesg):
     conn.sendall(mesg)
 
 def send_bytes(conn,mesg):
-    #print("=========")
-    #print("Sending Message: ",mesg)
-    conn.sendall(mesg)
+  while mesg:
+    transmitted = conn.send(mesg)
+    mesg = mesg[transmitted:]
 
 def recv_data(conn,t = 'int'):
     text = conn.recv(1024)
@@ -190,6 +190,33 @@ def recv_pub_key(conn,CS):
   #print(B.shape)
   CS.pub_key = (A,B)
 
+def send_pvt_key(conn,CS):
+  send_list = bytes(CS.p.tobytes())#8 bytes
+  send_list += bytes(CS.pvt_key.tobytes()) #256 bytes
+  #print(len(send_list))
+  #print(send_list)
+  t = 0
+  while send_list:
+    transmitted = conn.send(send_list)
+    t+=transmitted
+    send_list = send_list[transmitted:]
+
+def recv_pvt_key(conn,CS):
+  send_list = conn.recv(8)
+  p = np.frombuffer(send_list,dtype=np.int64)
+  CS.p = p[0]
+  CS.m = (1 + epsilon)*(CS.n + 1)*int(np.log2(CS.p))
+
+  send_list = b''
+  time.sleep(1)
+  while len(send_list) < 256:
+    temp = conn.recv(256 - len(send_list))
+    if not temp:
+        raise ConnectionError("Socket connection lost")
+    send_list += temp
+  pvt_key = np.frombuffer(send_list,dtype=np.int64)
+  CS.pvt_key = pvt_key
+
 def encrypt_message(mesg,CS): #mesg in Bytes format
   #print("Original Message:",mesg)
   #mesg = bytes(mesg,'utf-8')
@@ -205,13 +232,16 @@ def decrypt_message(text,CS):
   #print("Decrypted Text:",text)
   return text #returns text in Bytes Format
 
-def gen_hashed_message(mesg): #mesg in string format
+def gen_hashed_message(mesg,CS): #mesg in string format
    mesg = bytes(mesg,'utf-8')
-   mesg = mesg + hashlib.sha256(mesg).digest() # mesg + (32 bytes of hash)
+   hash = hashlib.sha256(mesg).digest()
+   hash = CS.encrypt_bytes(hash)
+   mesg = mesg + hash # mesg + (32 bytes of hash)
    return mesg
 
-def verify_hash(text):#text in Bytes format
+def verify_hash(text,CS):#text in Bytes format
    recv_hash = text[-32:]
+   recv_hash = CS.decrypt_bytes(recv_hash)
    mesg = text[:-32]
    mesg_hash = hashlib.sha256(mesg).digest()
    if (recv_hash == mesg_hash):
@@ -246,6 +276,14 @@ CS_encrypt_obj.gen_keys()
 CS_decrypt_obj = crypto_system(32)
 CS_decrypt_obj.gen_keys()
 
+#for server
+A_CS_encrypt = crypto_system(32)
+A_CS_encrypt.gen_keys()
+
+#for client
+A_CS_decrypt = crypto_system(32)
+A_CS_decrypt.gen_keys()
+
 
 #socket initialization
 lsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -273,7 +311,19 @@ sel.register(sys.stdin,selectors.EVENT_READ,data=None)
 #key exchange
 send_pub_key(conn,CS_decrypt_obj)
 recv_pub_key(conn,CS_encrypt_obj)
+send_pvt_key(conn,A_CS_encrypt)
+recv_pvt_key(conn,A_CS_decrypt)
 print("KEY exchange done")
+
+'''
+print("A_CS_encrypt")
+print(A_CS_encrypt.p)
+print(A_CS_encrypt.pvt_key)
+print("A_CS_decrypt")
+print(A_CS_decrypt.p)
+print(A_CS_decrypt.pvt_key)
+exit(0)
+'''
 
 '''
 print("CS_Encrypt_obj")
@@ -283,7 +333,20 @@ print("CS_Decrypt_obj")
 CS_decrypt_obj.debug()
 '''
 
-trial_test(CS_decrypt_obj)
+'''
+mesg = "Hello"
+mesg = mesg.encode('utf-8')
+hash = hashlib.sha256(mesg).digest()
+hash = A_CS_encrypt.encrypt_bytes(hash)
+print("Length of encrypted hash =",len(hash))
+mesg = CS_encrypt_obj.encrypt_bytes(mesg)
+mesg = mesg + hash
+print("Length of total stuff =",len(mesg))
+exit(0)'
+'''
+
+
+#trial_test(CS_decrypt_obj)
 
 conn.setblocking(False)
 
@@ -296,19 +359,22 @@ try:
                 #stdin
                 print("============================================")
                 mesg = input("")
-                mesg = gen_hashed_message(mesg)
-                print("Hashed Message:",mesg)
-                mesg = encrypt_message(mesg,CS_encrypt_obj) #mesg in bytes
+                mesg = mesg.encode('utf-8')
+                hash = hashlib.sha256(mesg).digest()
+                hash = A_CS_encrypt.encrypt_bytes(hash) #encrypted hash length = 16896
+                mesg = CS_encrypt_obj.encrypt_bytes(mesg)
+                mesg = mesg + hash
                 l1 = len(mesg)
                 #print("Length =",l1)
-                l1 = l1.to_bytes(8,byteorder='big')
+                l1 = l1.to_bytes(30,byteorder='big')
                 #print("Length of Encrypted Message: ",len(mesg),'=',l1)
                 conn.sendall(l1)
                 send_bytes(conn,mesg)
+                #print("message sent")
                 print("============================================")
             else:
                 print("============================================")
-                text = conn.recv(8)
+                text = conn.recv(30)
                 if (text is None or text == b''):
                     print(f"Closing connection to {key.data.addr}")
                     sel.unregister(key.fileobj)
@@ -320,15 +386,26 @@ try:
                 l1 = int.from_bytes(text,byteorder='big')
                 #print("Received Message Length =",l1)
                 time.sleep(1)
-                text = conn.recv(l1)
-                text = decrypt_message(text,CS_decrypt_obj)
-                text = verify_hash(text)
-                if (text == ''):
+                text = b''
+                #text = conn.recv(l1)
+                while len(text) < l1:
+                  temp = conn.recv(l1 - len(text))
+                  if not temp:
+                    raise ConnectionError("Socket connection lost")
+                  text += temp
+                
+                recv_hash = text[-16896:]
+                recv_hash = A_CS_decrypt.decrypt_bytes(recv_hash)
+                mesg = text[:-16896]
+                mesg = CS_decrypt_obj.decrypt_bytes(mesg)
+                mesg_hash = hashlib.sha256(mesg).digest()
+                mesg = mesg.decode('utf-8')
+                if (mesg_hash != recv_hash):
                    print("Integrity compromised. Message discarded")
                    continue
                 else:
                    print("Integrity verified. Message accepted")
-                print("Received Message:",text)
+                print("Received Message:",mesg)
                 print("============================================")
 
 finally:
