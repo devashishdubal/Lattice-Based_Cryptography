@@ -372,9 +372,8 @@ def console_textpad(stdscr):
           mesg = mesg.decode('utf-8')
           if (mesg_hash != recv_hash):
               messages.append("Integrity compromised. Message discarded")
-              continue
           else:
-              messages.append(mesg)
+              messages.append(f"{mesg}")
           msg_types.append(0)
         '''
         if np.random.randint(0,100)>90:
@@ -388,6 +387,7 @@ def console_textpad(stdscr):
         if k == curses.KEY_ENTER or k in [10, 13]:
             if text_pad_s == '!quit' or text_pad_s == '!q':
                 return
+            mesg = text_pad_s
             messages.append(text_pad_s)
             msg_types.append(1)
             text_pad_y = rows - 3
@@ -399,11 +399,11 @@ def console_textpad(stdscr):
             text_pad_cp = 0
             stdscr.addstr(text_pad_y + 1, text_pad_xl + 1, ' '*text_pad_wl)
             stdscr.refresh()
-            mesg = text_pad_s
+            
             mesg = mesg.encode('utf-8')
-            mesg2 = mesg.decode('utf-8')
-            messages.append(f"{mesg==mesg2}")
-            msg_types.append(0)
+            #mesg2 = mesg.decode('utf-8')
+            #messages.append(f"{text_pad_s==mesg2}")
+            #msg_types.append(0)
             hash = hashlib.sha256(mesg).digest()
             hash = A_CS_encrypt.encrypt_bytes(hash) #encrypted hash length = 16896
             mesg = CS_encrypt_obj.encrypt_bytes(mesg)
