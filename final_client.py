@@ -260,7 +260,8 @@ def trial_test(CS):
   print("Decrypted Text:",b_text.decode('utf-8'))
   print("============================================")
   
-HOST = "127.0.0.1"  # Standard loopback interface address (localhost)
+#HOST = "127.0.0.1"  # Standard loopback interface address (localhost)
+HOST = "172.20.10.3"
 PORT = 65432  # Port to listen on (non-privileged ports are > 1023)
 
 #for client public key

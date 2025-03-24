@@ -131,7 +131,7 @@ def recv_data(conn,t = 'int'):
 
 def send_pub_key(conn,CS):
   #sending p length = 8
-  send_list = bytes(CS.p.tobytes())
+  send_list = bytes(CS.p.tobytes(8))
   #print(len(send_list))
   #print(send_list)
   
@@ -152,6 +152,7 @@ def send_pub_key(conn,CS):
 def recv_pub_key(conn,CS):
   send_list = conn.recv(8) #its correct
   p = np.frombuffer(send_list,dtype=np.int64)
+  print("recvied p = ",bytes(p))
   CS.p = p[0]
   CS.m = (1 + epsilon)*(CS.n + 1)*int(np.log2(CS.p))
 
@@ -170,7 +171,7 @@ def recv_pub_key(conn,CS):
     A.append(pub_key_total[l:l+32])
     l+=32
   A = np.asarray(A)
-  #print(A.shape)
+  print("received A = ",A.shape)
   
   send_list = b''
   time.sleep(1)
@@ -182,7 +183,7 @@ def recv_pub_key(conn,CS):
   #print(len(send_list))
   #print(send_list)
   B = np.frombuffer(send_list,dtype='<i8')
-  #print(B.shape)
+  print("received B = ",B.shape)
   CS.pub_key = (A,B)
 
 def send_pvt_key(conn,CS):
@@ -260,7 +261,8 @@ def trial_test(CS):
   print("Decrypted Text:",b_text.decode('utf-8'))
   print("============================================")
   
-HOST = "127.0.0.1"  # Standard loopback interface address (localhost)
+#HOST = "127.0.0.1"  # Standard loopback interface address (localhost)
+HOST = "172.20.10.3"
 PORT = 65432  # Port to listen on (non-privileged ports are > 1023)
 
 #for client public key
@@ -304,9 +306,13 @@ sel.register(conn,selectors.EVENT_READ,data=dataType1)
 
 #key exchange
 send_pub_key(conn,CS_decrypt_obj)
+print("PUBLIC KEY SENT")
 recv_pub_key(conn,CS_encrypt_obj)
+print("PUBLIC KEY RECEIVED")
 send_pvt_key(conn,A_CS_encrypt)
+print("PRIVATE KEY SENT")
 recv_pvt_key(conn,A_CS_decrypt)
+print("PRIVATE KEY RECEIVED")
 print("KEY exchange done")
 
 conn.setblocking(False)
@@ -490,5 +496,11 @@ def console_textpad(stdscr):
                         stdscr.addstr(text_pad_y + 1, text_pad_xl + 1, text_pad_s[:text_pad_cp + 1])
                 text_pad_cp += 1
 
-
-wrapper(console_textpad)
+try: 
+  wrapper(console_textpad)
+except Exception as e:
+  print(e)
+finally:
+  conn.close()
+  lsock.close()
+  sel.close()
