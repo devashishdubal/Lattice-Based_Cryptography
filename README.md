@@ -40,12 +40,6 @@ python final_client.py
 - `final_server.py` - Implements the server logic, including key generation and message handling.
 - `final_client.py` - Implements the client logic, including encryption and decryption of messages.
 
-
-## Future Enhancements
-- Implement more efficient key exchange protocols.
-- Improve performance for larger key sizes.
-- Add support for authentication mechanisms.
-
 ## Acknowledgments and References
 - Inspired by research in post-quantum cryptography.
 - Based on concepts from Lattice-based cryptography and Learning with Errors (LWE).
