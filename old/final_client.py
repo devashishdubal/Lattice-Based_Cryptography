@@ -108,12 +108,26 @@ class crypto_system:
     print("====================================")
 
 
+def send_data(conn,mesg):
+    print("=========")
+    print("Original Message:",mesg)
+    if isinstance(mesg,str): mesg = mesg.encode("utf-8")
+    else: mesg = mesg.to_bytes(4,byteorder='little')
+    print("Bytes Message: ",mesg)
+    conn.sendall(mesg)
 
 def send_bytes(conn,mesg):
   while mesg:
     transmitted = conn.send(mesg)
     mesg = mesg[transmitted:]
 
+def recv_data(conn,t = 'int'):
+    text = conn.recv(1024)
+    if (not text): return None
+    if (t == 'str'):
+        return text.decode('utf-8')
+    else: 
+        return int.from_bytes(text, byteorder='little')
 
 def send_pub_key(conn,CS):
   #sending p length = 8
@@ -198,8 +212,38 @@ def recv_pvt_key(conn,CS):
   pvt_key = np.frombuffer(send_list,dtype=np.int64)
   CS.pvt_key = pvt_key
 
+def encrypt_message(mesg,CS): #mesg in Bytes format
+  #print("Original Message:",mesg)
+  #mesg = bytes(mesg,'utf-8')
+  #print("Bytes Message:",mesg)
+  mesg = CS.encrypt_bytes(mesg)
+  #print("Encrypted Message:",mesg)
+  return mesg
+def decrypt_message(text,CS):
+  #print("Recieved Text: ",text)
+  text = CS.decrypt_bytes(text)
+  #print("Decrypted Text In Bytes:",text)
+  #text = text.decode('utf-8')
+  #print("Decrypted Text:",text)
+  return text #returns text in Bytes Format
 
+def gen_hashed_message(mesg,CS): #mesg in string format
+   mesg = bytes(mesg,'utf-8')
+   hash = hashlib.sha256(mesg).digest()
+   hash = CS.encrypt_bytes(hash)
+   mesg = mesg + hash # mesg + (32 bytes of hash)
+   return mesg
 
+def verify_hash(text,CS):#text in Bytes format
+   recv_hash = text[-32:]
+   recv_hash = CS.decrypt_bytes(recv_hash)
+   mesg = text[:-32]
+   mesg_hash = hashlib.sha256(mesg).digest()
+   if (recv_hash == mesg_hash):
+      mesg = mesg.decode('utf-8')
+      return mesg
+   else:
+      return ''
    
 def trial_test(CS):
   print("============================================")
@@ -216,22 +260,23 @@ def trial_test(CS):
   print("Decrypted Text:",b_text.decode('utf-8'))
   print("============================================")
   
-HOST = "127.0.0.1"  # Standard loopback interface address (localhost)
+#HOST = "127.0.0.1"  # Standard loopback interface address (localhost)
+HOST = "172.20.10.3"
 PORT = 65432  # Port to listen on (non-privileged ports are > 1023)
 
 #for client public key
 CS_encrypt_obj = crypto_system(32)
 CS_encrypt_obj.gen_keys()
 
-#for server public key
+#for server
 CS_decrypt_obj = crypto_system(32)
 CS_decrypt_obj.gen_keys()
 
-#to authenticate client
+#for server
 A_CS_encrypt = crypto_system(32)
 A_CS_encrypt.gen_keys()
 
-#to authenticate server
+#for client
 A_CS_decrypt = crypto_system(32)
 A_CS_decrypt.gen_keys()
 
@@ -245,14 +290,14 @@ sel = selectors.DefaultSelector()
 #add socket to select queue
 dataType1 = types.SimpleNamespace(addr=(HOST, PORT),inb=b"", outb=b"")
 sel.register(lsock,selectors.EVENT_READ,data=dataType1)
-
+#sel.register(sys.stdin,selectors.EVENT_READ,data=None)
 
 #key exchange
 recv_pub_key(lsock,CS_encrypt_obj)
 send_pub_key(lsock,CS_decrypt_obj)
 recv_pvt_key(lsock,A_CS_decrypt)
 send_pvt_key(lsock,A_CS_encrypt)
-
+print("KEY exchange done")
 lsock.setblocking(False)
 
 def console_textpad(stdscr):
@@ -266,8 +311,8 @@ def console_textpad(stdscr):
     rectangle(stdscr, 0, 0, rows - 4, cols - 1)
     stdscr.refresh()
     msg_type_names = [" Server ", " Client "]
-    messages = []
-    msg_types = []
+    messages = ["dummy"]
+    msg_types = [1]
 
     text_pad_y = rows - 3
     text_pad_xl = 1
@@ -307,49 +352,35 @@ def console_textpad(stdscr):
 
         events = sel.select(timeout=0)
         for key, mask in events:
-          #recieve length of message from SERVER
           text = lsock.recv(30)
-          if not text:
-             return
-          c_mesg = ""
-          
-          #convert length in bytes to length in integer
+          #print(text)
           l1 = int.from_bytes(text,byteorder='big')
+          #print("Received Message Length =",l1)
           time.sleep(1)
-          
-          #recieve ciphertext of length l1
           text = b''
+          #text = lsock.recv(l1)
           while len(text) < l1:
             temp = lsock.recv(l1 - len(text))
             if not temp:
               raise ConnectionError("Socket connection lost")
             text += temp
           
-          #split hash and ciphertext
           recv_hash = text[-16896:]
-          mesg = text[:-16896]
-          
-          #decrypt hash
           recv_hash = A_CS_decrypt.decrypt_bytes(recv_hash)
-          
-          c_mesg = "Encrypted Text = " + str(mesg[:10]) + "..." + str(mesg[-10:])
-          
-          #Decrypt Ciphertext
+          mesg = text[:-16896]
           mesg = CS_decrypt_obj.decrypt_bytes(mesg)
-          
-          #Calculate hash of decrypted ciphertext
           mesg_hash = hashlib.sha256(mesg).digest()
           mesg = mesg.decode('utf-8')
-          c_mesg += " | Decrypted Message = " + mesg
-          
-          #if calculated hash == recieved hash, valid message
-          #else, invalid message
           if (mesg_hash != recv_hash):
               messages.append("Integrity compromised. Message discarded")
           else:
-              messages.append(f"{c_mesg}")
+              messages.append(f"{mesg}")
           msg_types.append(0)
-     
+        '''
+        if np.random.randint(0,100)>90:
+            messages.append(f"blah blah - {np.random.randint(0,100)}")
+            msg_types.append(0)
+        '''
         stdscr.addstr(text_pad_y + 1, text_pad_xl + 1 + text_pad_cp, '')
         k = stdscr.getch()
         if k == curses.ERR:
@@ -358,46 +389,32 @@ def console_textpad(stdscr):
             if text_pad_s == '!quit' or text_pad_s == '!q':
                 return
             mesg = text_pad_s
-            
+            messages.append(text_pad_s)
+            msg_types.append(1)
             text_pad_y = rows - 3
             text_pad_xl = 1
             text_pad_wl = cols - 6
             text_pad_HIDE_WORDS = False
             text_pad_wl += text_pad_xl + 2
+            text_pad_s = ''
             text_pad_cp = 0
             stdscr.addstr(text_pad_y + 1, text_pad_xl + 1, ' '*text_pad_wl)
             stdscr.refresh()
             
             mesg = mesg.encode('utf-8')
-            
-            #Calculate Hash of message
+            #mesg2 = mesg.decode('utf-8')
+            #messages.append(f"{text_pad_s==mesg2}")
+            #msg_types.append(0)
             hash = hashlib.sha256(mesg).digest()
-            
-            #Encrypt hash using client's private key
             hash = A_CS_encrypt.encrypt_bytes(hash) #encrypted hash length = 16896
-            
-            #Encrypt plaintext using server's public key
             mesg = CS_encrypt_obj.encrypt_bytes(mesg)
-            text_pad_s += " | Encrypted Form = " + str(mesg[:10]) + "..." + str(mesg[-10:])
-            
-            #Concatenate ciphertext and hash
             mesg = mesg + hash
-            
-            #Find length of total ciphertext
             l1 = len(mesg)
-            
-            #Convert length in integer to length in bytes
+            #print("Length =",l1)
             l1 = l1.to_bytes(30,byteorder='big')
-			
-			      #Send length to server
-            send_bytes(lsock,l1)
-            
-            #Send ciphertext to server
+            #print("Length of Encrypted Message: ",len(mesg),'=',l1)
+            lsock.sendall(l1)
             send_bytes(lsock,mesg)
-            
-            messages.append(text_pad_s)
-            msg_types.append(1)
-            text_pad_s = ''
 
         elif k == curses.KEY_UP or k == curses.KEY_DOWN:
             pass
