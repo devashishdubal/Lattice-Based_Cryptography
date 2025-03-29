@@ -6,7 +6,7 @@ This project implements a secure client-server communication model using Lattice
 ## Features
 - **Secure Communication:** Utilizes LWE for encryption and decryption.
 - **Client-Server Model:** The server listens for connections while the client sends and receives encrypted messages.
-- **Python Implementation:** Written in Python with appropriate cryptographic libraries.
+- **Python Implementation:** Written in Python with additional libraries.
 
 ## Installation
 1. Clone the repository:
