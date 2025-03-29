@@ -26,19 +26,33 @@ Ensure you have the following Python libraries installed:
 ## Usage
 ### Start the Server
 Run the server script to begin listening for client connections:
+
+On Windows
 ```sh
 python final_server.py
 ```
 
+On Linux/MacOS
+```sh
+python3 final_server.py
+```
+
 ### Start the Client
 Run the client script to connect to the server and exchange encrypted messages:
+
+On Windows
 ```sh
 python final_client.py
 ```
 
+On Linux/MacOS
+```sh
+python3 final_client.py
+```
+
 ## File Structure
-- `final_server.py` - Implements the server logic, including key generation and message handling.
-- `final_client.py` - Implements the client logic, including encryption and decryption of messages.
+- `final_server.py` - Implements the server logic
+- `final_client.py` - Implements the client logic
 
 ## Acknowledgments and References
 - Inspired by research in post-quantum cryptography.
