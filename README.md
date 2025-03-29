@@ -17,6 +17,8 @@ This project implements a secure client-server communication model using Lattice
 2. Install dependencies:
    ```sh
    pip install numpy
+   # if windows is being used
+   pip install windows-curses
    ```
 
 ## Dependencies
