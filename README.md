@@ -22,6 +22,7 @@ This project implements a secure client-server communication model using Lattice
 ## Dependencies
 Ensure you have the following Python libraries installed:
 - `numpy`
+- `curses` (Linux/MacOS), `windows-curses` (Windows)
 
 ## Usage
 ### Start the Server
